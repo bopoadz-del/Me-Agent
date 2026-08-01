@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY common /app/common
 COPY hive /app/hive
+COPY scripts /app/scripts
 COPY VERSION /app/VERSION
 
 RUN useradd --create-home --uid 1000 agent \

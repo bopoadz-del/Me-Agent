@@ -1,0 +1,65 @@
+# Self-Agent on Render — two web services (Docker) + persistent /data disks.
+# Apply: https://dashboard.render.com/blueprint/new?repo=https://github.com/bopoadz-del/Me-Agent
+#
+# BLOCKED on free plan: persistent disks (requires starter+).
+# BLOCKED: in-cluster Ollama (too heavy for Render free/starter) — set OLLAMA_URL
+# to an external Ollama endpoint. Do NOT enable TEST_MODE / LLM_CLIENT=mock in prod.
+
+services:
+  - type: web
+    name: hive-server
+    runtime: docker
+    plan: starter
+    region: oregon
+    branch: main
+    autoDeploy: true
+    dockerfilePath: ./hive/Dockerfile
+    dockerContext: .
+    dockerCommand: "python scripts/render_enroll_hive.py && uvicorn hive.main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /health
+    disk:
+      name: hive-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DATA_DIR
+        value: /data
+      - key: TEST_MODE
+        value: "false"
+      - key: HIVE_JWT_KEY
+        generateValue: true
+      - key: BOOTSTRAP_AGENT_ID
+        value: agent-1
+      - key: BOOTSTRAP_AGENT_SECRET
+        sync: false
+
+  - type: web
+    name: agent-instance
+    runtime: docker
+    plan: starter
+    region: oregon
+    branch: main
+    autoDeploy: true
+    dockerfilePath: ./agent/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    disk:
+      name: agent-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DATA_DIR
+        value: /data
+      - key: TEST_MODE
+        value: "false"
+      - key: AGENT_ID
+        value: agent-1
+      - key: AGENT_API_TOKEN
+        generateValue: true
+      - key: AGENT_SECRET
+        sync: false
+      # Private network (same region/account). Public alternative: https://<hive-slug>.onrender.com
+      - key: HIVE_URL
+        value: http://hive-server:10000
+      - key: OLLAMA_URL
+        sync: false
