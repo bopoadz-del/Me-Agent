@@ -1,0 +1,19 @@
+.env
+/data/
+*.db
+*.sqlite
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+domain-kits/generated/*
+!domain-kits/generated/.gitkeep
+tests/generated/*
+!tests/generated/.gitkeep
+
+# Harness preload exception (spec Section 12)
+!tests/fixtures/preload/memory.sqlite
+
+*.egg-info/
+tmp_*/
+

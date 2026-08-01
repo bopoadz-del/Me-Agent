@@ -1,0 +1,74 @@
+services:
+  hive-server:
+    build:
+      context: .
+      dockerfile: hive/Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      HIVE_JWT_KEY: ${HIVE_JWT_KEY}
+      DATA_DIR: /data
+    volumes:
+      - hive-data:/data
+    user: "agent"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Pull llama3.2:3b on first start (idempotent if already present)
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        ollama serve &
+        pid=$$!
+        until curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; do sleep 1; done
+        ollama pull llama3.2:3b
+        wait $$pid
+    restart: unless-stopped
+
+  agent-instance:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      AGENT_ID: ${AGENT_ID:-agent-1}
+      AGENT_API_TOKEN: ${AGENT_API_TOKEN}
+      AGENT_SECRET: ${AGENT_SECRET}
+      HIVE_URL: http://hive-server:8001
+      OLLAMA_URL: http://ollama:11434
+      DATA_DIR: /data
+    volumes:
+      - agent-data:/data
+    user: "agent"
+    depends_on:
+      hive-server:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  hive-data:
+  agent-data:
+  ollama-data:

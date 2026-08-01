@@ -1,0 +1,100 @@
+# Port terminal operations domain kit — real V1 content (not a scaffold).
+domain: port_terminal
+version: "1.0"
+description: >
+  Berth tariff lookup, berth fee calculation, and maximum dwell gating
+  for container terminal operations.
+
+data_tables:
+  - name: tariffs
+    description: Published berth tariff schedule by container type.
+    columns:
+      - name: container_type
+        type: string
+      - name: base_rate_usd_per_hour
+        type: number
+      - name: currency
+        type: string
+    rows:
+      - container_type: dry
+        base_rate_usd_per_hour: 10.0
+        currency: USD
+      - container_type: reefer
+        base_rate_usd_per_hour: 18.5
+        currency: USD
+      - container_type: hazardous
+        base_rate_usd_per_hour: 27.0
+        currency: USD
+    lookup_key: container_type
+    tools:
+      - file_reader
+      - calculator
+    evidence_standard: >
+      Every rate used must appear verbatim in attached tariff evidence
+      (txt/csv). Refuse if the container type is absent from evidence.
+
+calculations:
+  - name: berth_fee
+    description: Compute berth fee from dwell hours and base rate.
+    formula: "berth_fee_usd = dwell_hours * base_rate_usd_per_hour"
+    inputs:
+      - name: dwell_hours
+        type: number
+      - name: base_rate_usd_per_hour
+        type: number
+      - name: container_type
+        type: string
+    outputs:
+      - name: berth_fee_usd
+        type: number
+      - name: currency
+        type: string
+    tools:
+      - calculator
+      - file_reader
+    evidence_standard: >
+      dwell_hours and base_rate_usd_per_hour must be grounded in attached
+      evidence excerpts before returning a fee.
+    depends_on:
+      - port_terminal_tariffs_lookup
+
+decision_rules:
+  - name: max_dwell
+    description: Gate missions that exceed the free-dwell window.
+    condition: "dwell_hours <= max_dwell_hours"
+    parameters:
+      max_dwell_hours: 72
+    inputs:
+      - name: dwell_hours
+        type: number
+      - name: max_dwell_hours
+        type: number
+    output_schema:
+      type: object
+      required: [allowed, reason]
+      properties:
+        allowed:
+          type: boolean
+        reason:
+          type: string
+      additionalProperties: false
+    tools:
+      - calculator
+    evidence_standard: >
+      dwell_hours must be cited from attached evidence before allowing
+      or denying the gate.
+
+failure_modes:
+  - name: missing_tariff_evidence
+    description: >
+      Refuse berth fee calculation when tariff evidence is missing or
+      does not contain the requested container type.
+    trigger: >
+      attached_evidence is empty OR container_type not found in any
+      evidence excerpt
+    expected_behavior: >
+      Return ExecutionResult status=failure with empty citations and
+      a reason naming the missing evidence field.
+    asserts:
+      - "refuse when attached_evidence is empty"
+      - "refuse when container_type is absent from evidence text"

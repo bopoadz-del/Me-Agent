@@ -1,0 +1,3 @@
+agent_id: self-agent-v1
+airgap: true
+embedding_dim: 384

@@ -1,0 +1,44 @@
+[
+  {
+    "block_id": "port_terminal_tariffs_lookup",
+    "name": "tariffs_lookup",
+    "domain": "port_terminal",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "container_type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "container_type"
+      ]
+    },
+    "output_json_schema": {
+      "type": "object",
+      "properties": {
+        "matched": {
+          "type": "boolean"
+        },
+        "row": {
+          "type": "object"
+        },
+        "citations": {
+          "type": "array"
+        }
+      },
+      "required": [
+        "matched",
+        "row",
+        "citations"
+      ]
+    },
+    "system_prompt_template": "Lookup berth tariffs by container type from evidence.",
+    "tools": [
+      "file_reader"
+    ],
+    "evidence_standard": "cite tariff evidence",
+    "dependencies": [],
+    "version_clock": 1
+  }
+]
