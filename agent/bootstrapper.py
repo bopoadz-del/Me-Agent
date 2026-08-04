@@ -285,7 +285,11 @@ def boot(*, serve: bool = True) -> dict[str, Any]:
     hive_connected = False
     if airgap:
         _load_preload(store)
-        skip = os.environ.get("SKIP_AIRGAP_VERIFY", "false").lower() == "true"
+        # SKIP_AIRGAP_VERIFY is honored only under TEST_MODE (ruling 2).
+        skip = (
+            os.environ.get("SKIP_AIRGAP_VERIFY", "false").lower() == "true"
+            and os.environ.get("TEST_MODE", "").lower() == "true"
+        )
         if not skip:
             from agent.security.airgap import AirGapVerifier
 
