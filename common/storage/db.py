@@ -7,15 +7,15 @@ from typing import Callable
 
 import sqlite_vec
 
-# Render's stock CPython often ships SQLite without loadable extensions.
-# Prefer pysqlite3-binary when the stdlib connection cannot enable them.
-try:
-    import pysqlite3 as _sqlite3_mod  # type: ignore
+# Amendment A5: pysqlite3 fallback is Render-only (RENDER env is set by Render).
+# Local and TEST_MODE paths use stock sqlite3 + sqlite-vec exclusively.
+if os.environ.get("RENDER"):
+    try:
+        import pysqlite3 as _sqlite3_mod  # type: ignore
 
-    if not hasattr(sqlite3.connect(":memory:"), "enable_load_extension"):
         sqlite3 = _sqlite3_mod  # type: ignore[assignment]
-except Exception:
-    pass
+    except Exception:
+        pass
 
 CODE_SCHEMA_VERSION = 1
 
@@ -32,17 +32,23 @@ def connect(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     if not hasattr(conn, "enable_load_extension"):
-        try:
-            import pysqlite3 as pysqlite3  # type: ignore
+        if os.environ.get("RENDER"):
+            try:
+                import pysqlite3 as pysqlite3  # type: ignore
 
-            conn.close()
-            conn = pysqlite3.connect(db_path, check_same_thread=False)
-            conn.row_factory = pysqlite3.Row
-        except Exception as exc:  # pragma: no cover - platform dependent
+                conn.close()
+                conn = pysqlite3.connect(db_path, check_same_thread=False)
+                conn.row_factory = pysqlite3.Row
+            except Exception as exc:  # pragma: no cover - platform dependent
+                raise RuntimeError(
+                    "SQLite loadable extensions unavailable on Render; "
+                    "ensure pysqlite3-binary is installed"
+                ) from exc
+        else:
             raise RuntimeError(
-                "SQLite loadable extensions unavailable; install pysqlite3-binary "
-                "or use the Docker runtime (python:3.11-slim)"
-            ) from exc
+                "SQLite loadable extensions unavailable; use Python with "
+                "extension support (local verification must not use pysqlite3)"
+            )
     conn.enable_load_extension(True)
     sqlite_vec.load(conn)
     conn.enable_load_extension(False)
