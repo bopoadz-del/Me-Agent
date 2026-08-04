@@ -23,7 +23,6 @@ ENV DATA_DIR=/data
 ENV AIRGAP=true
 ENV OLLAMA_URL=http://127.0.0.1:11434
 ENV OLLAMA_MODEL=qwen2.5:3b-instruct
-ENV TEST_MODE=true
 
 USER agent
 
