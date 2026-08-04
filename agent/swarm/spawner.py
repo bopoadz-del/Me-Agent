@@ -7,7 +7,7 @@ import os
 import time
 from multiprocessing import Process, Queue
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import jsonschema
 
@@ -29,7 +29,7 @@ _SCRUB_ALLOWED = (
     "TEST_MODE",
     "DATA_DIR",
     "OLLAMA_URL",
-    "OLLAMA_MODEL",  # non-secret; host may ship qwen2.5 instead of llama3.2
+    "OLLAMA_MODEL",
 )
 
 
@@ -74,6 +74,7 @@ def _child_worker(
     child_env: dict[str, str],
     result_queue: Queue,
 ) -> None:
+    """Production child entry — LLM / harness-marker path."""
     os.environ.clear()
     os.environ.update(child_env)
     block = BlockDef.model_validate(block_payload)
@@ -122,6 +123,31 @@ def _child_worker(
         result_queue.put({"ok": False, "output": {"reason": str(exc)}})
 
 
+def _child_runner_worker(
+    runner: Callable[..., dict[str, Any]],
+    block_payload: dict[str, Any],
+    step_payload: dict[str, Any],
+    evidence_paths: list[str],
+    context: dict[str, Any],
+    child_env: dict[str, str],
+    result_queue: Queue,
+) -> None:
+    """Test-seam child entry — same env scrub; only target callable differs."""
+    os.environ.clear()
+    os.environ.update(child_env)
+    step = PlanStep.model_validate(step_payload)
+    _ = BlockDef.model_validate(block_payload)
+    try:
+        output = runner(step, context, evidence_paths)
+        if not isinstance(output, dict):
+            output = {"value": output}
+        result_queue.put({"ok": True, "output": output})
+    except AirGapError as exc:
+        result_queue.put({"ok": False, "output": {"reason": str(exc).lower()}})
+    except Exception as exc:  # noqa: BLE001 — child boundary
+        result_queue.put({"ok": False, "output": {"reason": str(exc)}})
+
+
 class SubAgentSpawner:
     def __init__(self, registry: BlockRegistry, llm_client: Optional[Any] = None) -> None:
         self.registry = registry
@@ -145,53 +171,60 @@ class SubAgentSpawner:
                 validation_status="failed",
                 execution_time_ms=0,
             )
-        runner = self.registry.runner_for(step.block_id) if hasattr(self.registry, "runner_for") else None
-        # Harness runners that must observe scrubbed child env / real kill still go
-        # through spawn (markers in system_prompt). Callables without markers run
-        # in-process only when they do not require isolation assertions.
-        if runner is not None and "TEST_HARNESS_" not in (block.system_prompt_template or ""):
-            start = time.monotonic()
-            try:
-                output = runner(step, context, evidence_paths)
-                status = self._validate_output(block, output)
-            except AirGapError as exc:
-                output = {"reason": str(exc).lower()}
-                status = "failed"
-            except Exception as exc:  # noqa: BLE001
-                output = {"reason": str(exc)}
-                status = "failed"
+        runner = None
+        if hasattr(self.registry, "runner_for"):
+            runner = self.registry.runner_for(step.block_id)
+        if runner is not None and os.environ.get("TEST_MODE", "").lower() != "true":
             return StepOutput(
                 step_id=step.step_id,
                 block_id=step.block_id,
-                output=output if isinstance(output, dict) else {"value": output},
-                validation_status=status,
-                execution_time_ms=int((time.monotonic() - start) * 1000),
+                output={
+                    "reason": "registered runner refused: TEST_MODE!=true",
+                },
+                validation_status="failed",
+                execution_time_ms=0,
             )
-        _ = context
-        return self._spawn_block(block, step, evidence_paths)
+        return self._spawn_block(block, step, evidence_paths, context, runner)
 
     def _spawn_block(
         self,
         block: BlockDef,
         step: PlanStep,
         evidence_paths: list[str],
+        context: dict[str, Any],
+        runner: Optional[Callable[..., dict[str, Any]]],
     ) -> StepOutput:
         start = time.monotonic()
         result_queue: Queue = _SPAWN.Queue()
         proc: Optional[Process] = None
         child_pid = 0
+        child_env = _scrubbed_env()
         _active_sem.acquire()
         try:
-            proc = _SPAWN.Process(
-                target=_child_worker,
-                args=(
-                    block.model_dump(mode="json"),
-                    step.model_dump(mode="json"),
-                    evidence_paths,
-                    _scrubbed_env(),
-                    result_queue,
-                ),
-            )
+            if runner is not None:
+                proc = _SPAWN.Process(
+                    target=_child_runner_worker,
+                    args=(
+                        runner,
+                        block.model_dump(mode="json"),
+                        step.model_dump(mode="json"),
+                        evidence_paths,
+                        context,
+                        child_env,
+                        result_queue,
+                    ),
+                )
+            else:
+                proc = _SPAWN.Process(
+                    target=_child_worker,
+                    args=(
+                        block.model_dump(mode="json"),
+                        step.model_dump(mode="json"),
+                        evidence_paths,
+                        child_env,
+                        result_queue,
+                    ),
+                )
             proc.start()
             child_pid = proc.pid or 0
             proc.join(timeout=step.timeout_seconds)
@@ -230,7 +263,11 @@ class SubAgentSpawner:
             )
         status = self._validate_output(block, output)
         if status == "failed":
-            retry_prompt = block.system_prompt_template + "\nSchema: " + json.dumps(block.output_json_schema)
+            retry_prompt = (
+                block.system_prompt_template
+                + "\nSchema: "
+                + json.dumps(block.output_json_schema)
+            )
             llm = self.llm_client
             if llm is None and os.environ.get("TEST_MODE", "").lower() == "true":
                 llm = MockLLMClient()

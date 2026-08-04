@@ -5,7 +5,7 @@ Rules:
 - Hive/agent are booted for real when sibling modules exist.
 - If hive/agent/foundation are not landed, fixtures fail with BLOCKED — they do
   not stub green against empty logic.
-- Declared test seams only: MockLLMClient (common) and InProcessBroker (here).
+- Declared test seams: MockLLMClient, InProcessBroker, BlockRegistry.register_runner.
 """
 from __future__ import annotations
 
@@ -52,12 +52,11 @@ def free_port() -> int:
 # ── Declared test seam: in-process broker (Rule 3) ────────────────────────────
 
 class InProcessBroker:
-    """Pub/sub observation seam for hive outbound traffic under TEST_MODE.
+    """Declared Rule-3 test seam #2: in-process broker (not a fourth seam).
 
-    Production counterpart is the live WebSocket path. Hive SHOULD publish
-    outbound frames to ``app.state.test_broker`` when present so
-    ``HiveHandle.wait_for`` can observe ``block_update`` etc. without faking
-    mission results.
+    Production counterpart is the live WebSocket path. Under TEST_MODE Hive
+    publishes outbound frames to ``app.state.test_broker`` so
+    ``HiveHandle.wait_for`` can observe ``block_update`` without faking results.
     """
 
     def __init__(self) -> None:
@@ -797,8 +796,9 @@ def _block(block_id: str, **kwargs):
 
 
 @pytest.fixture()
-def registry_with_sleeper():
+def registry_with_sleeper(monkeypatch):
     """Block whose child sleeps 10s (timeout acceptance)."""
+    monkeypatch.setenv("TEST_MODE", "true")
     block = _block(
         "sleeper",
         output_json_schema={
@@ -818,8 +818,9 @@ def registry_with_sleeper():
 
 
 @pytest.fixture()
-def registry_with_envdump():
+def registry_with_envdump(monkeypatch):
     """Block whose child returns os.environ key list."""
+    monkeypatch.setenv("TEST_MODE", "true")
     block = _block(
         "envdump",
         output_json_schema={
@@ -837,8 +838,9 @@ def registry_with_envdump():
 
 
 @pytest.fixture()
-def registry_with_searcher():
+def registry_with_searcher(monkeypatch):
     """Block that invokes web_search (airgap must fail)."""
+    monkeypatch.setenv("TEST_MODE", "true")
     block = _block(
         "searcher",
         tools=["web_search"],
@@ -909,7 +911,7 @@ def full_stack(hive, enrolled_agent, keys, tmp_path_factory):
     }
 
     # Register adder on hive so agent pulls it at auth
-    _try_register_block_on_hive(hive, _adder_block())
+    _register_block_on_hive(hive, _adder_block())
 
     proc = subprocess.Popen(
         [sys.executable, "-m", "agent.bootstrapper"],
@@ -956,7 +958,7 @@ def full_stack(hive, enrolled_agent, keys, tmp_path_factory):
         shutil.rmtree(data_dir, ignore_errors=True)
 
 
-def _try_register_block_on_hive(hive: HiveHandle, block: Any) -> None:
+def _register_block_on_hive(hive: HiveHandle, block: Any) -> None:
     import httpx
 
     token = _mint_admin_jwt(hive.jwt_key)
@@ -968,11 +970,14 @@ def _try_register_block_on_hive(hive: HiveHandle, block: Any) -> None:
             headers={"Authorization": f"Bearer {token}"},
             timeout=10.0,
         )
-        if r.status_code >= 400:
-            # Non-fatal for suites that don't need hive registry; agent may load locally
-            pass
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001 — surface transport failures
+        _blocked("hive", "POST /admin/blocks transport failed", repr(exc))
+    if r.status_code >= 400:
+        _blocked(
+            "hive",
+            f"POST /admin/blocks failed ({r.status_code})",
+            r.text,
+        )
 
 
 @pytest.fixture()
