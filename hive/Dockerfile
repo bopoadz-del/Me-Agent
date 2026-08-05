@@ -24,4 +24,4 @@ EXPOSE 8001
 
 USER agent
 
-CMD ["sh", "-c", "uvicorn hive.main:app --host 0.0.0.0 --port ${PORT:-8001}"]
+CMD ["sh", "-c", "python -m uvicorn hive.main:app --host 0.0.0.0 --port ${PORT:-10000}"]
