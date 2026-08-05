@@ -15,7 +15,7 @@ services:
     autoDeploy: true
     dockerfilePath: ./hive/Dockerfile
     dockerContext: .
-    dockerCommand: "python scripts/render_enroll_hive.py && python -m uvicorn hive.main:app --host 0.0.0.0 --port ${PORT:-10000}"
+    dockerCommand: /app/scripts/hive_docker_entrypoint.sh
     healthCheckPath: /health
     disk:
       name: hive-data
