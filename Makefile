@@ -1,4 +1,4 @@
-.PHONY: build up down test test-unit test-integration compile-domain verify-airgap detect clean mutation-gate
+.PHONY: build up down test test-unit test-integration test-e2e compile-domain verify-airgap detect clean mutation-gate
 
 build:
 	docker compose build
@@ -19,11 +19,15 @@ test-unit:
 test-integration:
 	python3 -m pytest tests/integration/ -v -m "not airgap"
 
-test: detect test-unit test-integration
+test-e2e:
+	python3 -m pytest tests/e2e/ -v
+
+test: detect test-unit test-integration test-e2e
 
 compile-domain:
 	python3 -m domain_kits.compiler.engine --sheet domain-kits/sheets/port_ops.yaml
 
+# Phase B — REGISTERED in KNOWN_INCOMPLETE.md. Do not run on Windows host CI.
 verify-airgap:
 	docker build -f agent/Dockerfile.airgap -t self_agent_airgap .
 	docker run --rm --network none -e AIRGAP=true -e TEST_MODE=true \

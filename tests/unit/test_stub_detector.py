@@ -51,10 +51,65 @@ def test_stub_detector_expr_call_counts_as_meaningful(detector, tmp_path):
     src = "def f(db):\n    db.begin()\n    db.commit()\n"
     p = tmp_path / "legit_two_calls.py"
     p.write_text(src, encoding="utf-8")
-    # Force allowlist path so triviality check runs
-    rel = "agent/orchestrator/engine.py"
-    findings = detector.scan(str(p), rel)
+    # Temporarily enable pending allowlist path so triviality check runs
+    pending = sorted(detector.TRIVIALITY_ALLOWLIST_PENDING)[0]
+    old = set(detector.TRIVIALITY_ALLOWLIST)
+    detector.TRIVIALITY_ALLOWLIST = {pending}
+    try:
+        findings = detector.scan(str(p), pending)
+    finally:
+        detector.TRIVIALITY_ALLOWLIST = old
     assert findings == [], findings
     assert detector.is_trivial(
         __import__("ast").parse(src).body[0].body
     ) is False
+
+
+def test_planted_hollow_makes_detect_exit_nonzero(detector, tmp_path, monkeypatch):
+    """Completeness meta-test: hollow reachable module → non-zero exit."""
+    repo = tmp_path / "repo"
+    (repo / "agent").mkdir(parents=True)
+    (repo / "agent" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "agent" / "hollow.py").write_text(
+        "def incomplete():\n    pass\n",
+        encoding="utf-8",
+    )
+    (repo / "KNOWN_INCOMPLETE.md").write_text(
+        "# KNOWN_INCOMPLETE\n\n"
+        "## Path allow-list\n\n(none)\n\n"
+        "make verify-airgap\n"
+        "11.4\n"
+        "Windows spawn\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(repo)
+    rc = detector.main([])
+    assert rc == 1
+
+
+def test_allowlisted_hollow_does_not_fail(detector, tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    (repo / "agent").mkdir(parents=True)
+    (repo / "agent" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "agent" / "hollow.py").write_text(
+        "def incomplete():\n    pass\n",
+        encoding="utf-8",
+    )
+    (repo / "KNOWN_INCOMPLETE.md").write_text(
+        "# KNOWN_INCOMPLETE\n\n"
+        "## Path allow-list\n\n"
+        "- path: agent/hollow.py\n\n"
+        "make verify-airgap\n"
+        "11.4\n"
+        "Windows spawn\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(repo)
+    rc = detector.main([])
+    assert rc == 0
+
+
+def test_missing_known_incomplete_fails(detector, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    rc = detector.main([])
+    assert rc == 1
