@@ -13,6 +13,7 @@ jobs:
     env:
       TEST_MODE: "true"
       PYTHONPATH: ${{ github.workspace }}
+      DATA_DIR: ${{ github.workspace }}/.ci-data
     steps:
       - uses: actions/checkout@v4
 
@@ -26,6 +27,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -e . --no-deps
+          mkdir -p "$DATA_DIR/logs"
 
       - name: make detect
         run: make detect
