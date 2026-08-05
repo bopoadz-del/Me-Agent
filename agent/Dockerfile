@@ -17,6 +17,7 @@ RUN useradd --create-home --uid 1000 agent \
     && chown -R agent:agent /data /app
 
 ENV DATA_DIR=/data
+ENV PYTHONPATH=/app
 ENV PORT=8000
 EXPOSE 8000
 

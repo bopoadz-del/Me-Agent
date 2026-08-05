@@ -13,14 +13,16 @@ COPY hive /app/hive
 COPY scripts /app/scripts
 COPY VERSION /app/VERSION
 
-RUN useradd --create-home --uid 1000 agent \
+RUN chmod +x /app/scripts/hive_docker_entrypoint.sh \
+    && useradd --create-home --uid 1000 agent \
     && mkdir -p /data \
     && chown -R agent:agent /data /app
 
 ENV DATA_DIR=/data
-ENV PORT=8001
-EXPOSE 8001
+ENV PYTHONPATH=/app
+ENV PORT=10000
+EXPOSE 10000
 
 USER agent
 
-CMD ["sh", "-c", "uvicorn hive.main:app --host 0.0.0.0 --port ${PORT:-8001}"]
+CMD ["/app/scripts/hive_docker_entrypoint.sh"]
