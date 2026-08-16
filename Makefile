@@ -30,7 +30,7 @@ compile-domain:
 # Phase B — REGISTERED in KNOWN_INCOMPLETE.md. Do not run on Windows host CI.
 verify-airgap:
 	docker build -f agent/Dockerfile.airgap -t self_agent_airgap .
-	docker run --rm --network none -e AIRGAP=true -e TEST_MODE=true \
+	docker run --rm --network none -e AIRGAP=true \
 		-v $(PWD)/tests/fixtures/preload:/data/preload \
 		self_agent_airgap python3 -m agent.security.airgap
 

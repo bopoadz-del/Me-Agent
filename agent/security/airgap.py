@@ -1,6 +1,7 @@
 """Airgap smoke verifier — enforcement is docker --network none (spec Section 8.7).
 
 The verifier produces a smoke report; container network isolation is the guarantee.
+Checks are unconditional (amendment A4): no TEST_MODE relaxations.
 """
 from __future__ import annotations
 
@@ -10,7 +11,6 @@ import os
 import socket
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import httpx
 
@@ -35,20 +35,14 @@ class AirGapVerifier:
                 passed.append(f"no {var}")
         try:
             socket.create_connection(("8.8.8.8", 53), timeout=2)
-            if os.environ.get("TEST_MODE", "").lower() == "true":
-                passed.append("external tcp blocked (test override)")
-            else:
-                failed.append("external tcp reachable")
+            failed.append("external tcp reachable")
         except OSError:
             passed.append("external tcp blocked")
         except Exception:
             passed.append("external tcp blocked")
         try:
             socket.gethostbyname("example.com")
-            if os.environ.get("TEST_MODE", "").lower() == "true":
-                passed.append("dns blocked (test override)")
-            else:
-                failed.append("dns resolution succeeded")
+            failed.append("dns resolution succeeded")
         except OSError:
             passed.append("dns blocked")
         except Exception:
@@ -62,10 +56,7 @@ class AirGapVerifier:
                 else:
                     failed.append(f"ollama status {response.status_code}")
         except Exception as exc:  # noqa: BLE001
-            if os.environ.get("TEST_MODE", "").lower() == "true":
-                passed.append("ollama skipped in test mode")
-            else:
-                failed.append(f"ollama unreachable: {exc}")
+            failed.append(f"ollama unreachable: {exc}")
         config_path = Path("/app/config/agent.yaml")
         if config_path.is_file():
             digest = hashlib.sha256(config_path.read_bytes()).hexdigest()

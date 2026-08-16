@@ -14,9 +14,16 @@ Format (one per line): `- path: relative/path.py`
 
 ### verify-airgap
 
-- Status: **deferred** pending Linux + Docker
+- Status: **deferred** pending Linux + Docker + Ollama reachable inside the container
 - Command: `make verify-airgap`
 - CI: skipped with explicit job/step reason (not silent absence)
+- Amendment A4 consequence: `agent/security/airgap.py` no longer relaxes any check under
+  `TEST_MODE`, and neither the Makefile target nor `agent/Dockerfile.airgap` sets it. The
+  verifier's Ollama probe (`OLLAMA_URL`, default `http://127.0.0.1:11434`) therefore fails
+  closed, and `agent/Dockerfile.airgap` installs no Ollama — so `make verify-airgap` exits 1
+  until an Ollama runs inside the `--network none` container. That is honest failure, not a
+  regression: the TEST_MODE overrides it replaced reported "ollama skipped in test mode" as a
+  pass.
 
 ### Live E2E — SELF_AGENT_SPEC_V1.md §11.4 step 7
 
