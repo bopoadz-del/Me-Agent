@@ -16,11 +16,26 @@ class LLMClient(ABC):
 
 
 class OllamaClient(LLMClient):
-    def __init__(self, base_url: Optional[str] = None, model: str = "llama3.2:3b") -> None:
+    """Native Ollama `/api/generate` client — serves both local Ollama and Ollama Cloud.
+
+    Ollama Cloud (https://ollama.com) rejects unauthenticated calls with HTTP 401, so a
+    Bearer token is required there. Local Ollama takes no auth, so the header is only
+    added when a non-blank key is configured — an empty `Authorization: Bearer` would
+    break local use.
+    """
+
+    def __init__(
+        self,
+        base_url: Optional[str] = None,
+        model: str = "llama3.2:3b",
+        api_key: Optional[str] = None,
+    ) -> None:
         import os
 
         self.base_url = (base_url or os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")).rstrip("/")
         self.model = model
+        raw_key = api_key if api_key is not None else os.environ.get("OLLAMA_API_KEY", "")
+        self.api_key = raw_key.strip() if isinstance(raw_key, str) else ""
 
     def generate(self, prompt: str, system: str, format: str = "json") -> dict:
         payload = {
@@ -30,8 +45,11 @@ class OllamaClient(LLMClient):
             "stream": False,
             "format": format,
         }
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
         with httpx.Client(timeout=120.0) as client:
-            response = client.post(f"{self.base_url}/api/generate", json=payload)
+            response = client.post(f"{self.base_url}/api/generate", json=payload, headers=headers)
             response.raise_for_status()
             body = response.json()
         raw = body.get("response", "{}")
