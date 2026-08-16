@@ -251,11 +251,11 @@ def _wrap_registry(raw: Any) -> BlockRegistry:
 
 
 def disk_over_limit(path: str = "/data") -> bool:
-    """True when the data volume is over max_disk_gb (or TEST_DISK_FULL seam).
+    """True when the data volume is over max_disk_gb (or TEST_DISK_FULL flag).
 
     ``shutil.disk_usage(path).used`` is volume-wide. Under TEST_MODE the harness
-    drives refusal via TEST_DISK_FULL so host drives with >10GB used do not
-    falsely saturate the mission API.
+    drives refusal via TEST_DISK_FULL so host volumes with >10GB used do not
+    falsely saturate the mission API (A6: relaxation — pending human approval).
     """
     flag = os.environ.get("TEST_DISK_FULL", "").lower()
     if flag in ("1", "true", "yes"):

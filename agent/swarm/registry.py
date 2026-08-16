@@ -1,6 +1,7 @@
 """Block registry for orchestrator and spawner."""
 from __future__ import annotations
 
+import os
 from typing import Any, Callable, Optional
 
 from common.models.schemas import BlockDef
@@ -27,6 +28,11 @@ class BlockRegistry:
         return [b for b in self._blocks.values() if b.domain == domain]
 
     def register_runner(self, block_id: str, fn: Callable[..., dict[str, Any]]) -> None:
+        """Declared test seam (Rule 3 / A3). Forbidden unless TEST_MODE=true."""
+        if os.environ.get("TEST_MODE", "").lower() != "true":
+            raise RuntimeError(
+                "register_runner is a test seam and requires TEST_MODE=true"
+            )
         self._runners[block_id] = fn
 
     def set_runner(self, block_id: str, fn: Callable[..., dict[str, Any]]) -> None:
