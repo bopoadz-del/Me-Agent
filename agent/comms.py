@@ -84,7 +84,23 @@ class CommsLink:
                 continue
             plan = self.orchestrator.resolve(profile)
             result = self.orchestrator.execute(plan)
+            self._persist_result(result)
             self._emit_block_update(result)
+
+    def _persist_result(self, result: ExecutionResult) -> None:
+        """Store the terminal result so the agent API can report it (Section 11.4 step 7).
+
+        Publishing to the Hive alone left the agent unable to answer for its own
+        missions. A store that cannot persist must not kill the worker thread.
+        """
+        store = getattr(self.orchestrator, "store", None)
+        saver = getattr(store, "save_mission_result", None)
+        if saver is None:
+            return
+        try:
+            saver(result)
+        except Exception as exc:  # noqa: BLE001 - worker must survive a bad write
+            _logger.error(f"failed to persist mission result {result.mission_id}: {exc}")
 
     def _emit_block_update(self, result: ExecutionResult) -> None:
         # Payload MUST be a full ExecutionResult dump (schemas.py) — not a blocks registry push.

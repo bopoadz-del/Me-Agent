@@ -30,7 +30,8 @@ def _ensure_agent_tables(conn: sqlite3.Connection) -> None:
             status TEXT NOT NULL,
             checkpoint TEXT NOT NULL DEFAULT '{}',
             resumed_from TEXT,
-            profile_json TEXT
+            profile_json TEXT,
+            result_json TEXT
         );
         CREATE TABLE IF NOT EXISTS agent_meta (
             key TEXT PRIMARY KEY,
@@ -38,6 +39,10 @@ def _ensure_agent_tables(conn: sqlite3.Connection) -> None:
         );
         """
     )
+    # Agent DBs created before result persistence existed lack result_json.
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(missions)")}
+    if "result_json" not in columns:
+        conn.execute("ALTER TABLE missions ADD COLUMN result_json TEXT")
     conn.commit()
 
 
@@ -103,6 +108,36 @@ class LocalStore:
             ),
         )
         self.conn.commit()
+
+    def save_mission_result(self, result: Any) -> None:
+        """Persist the terminal ExecutionResult so the agent API can report it.
+
+        The worker previously published the result to the Hive and discarded it, which
+        left `GET /mission/{id}` unable to expose citations or confidence -- the two
+        things spec Section 11.4 step 7 asserts.
+        """
+        payload = result.model_dump(mode="json")
+        self.conn.execute(
+            """
+            INSERT INTO missions(mission_id, status, checkpoint, resumed_from, profile_json, result_json)
+            VALUES (?, ?, '{}', NULL, '{}', ?)
+            ON CONFLICT(mission_id) DO UPDATE SET
+                status = excluded.status,
+                result_json = excluded.result_json
+            """,
+            (payload["mission_id"], payload["status"], json.dumps(payload)),
+        )
+        self.conn.commit()
+
+    def get_mission_result(self, mission_id: str) -> Optional[dict[str, Any]]:
+        """Return the stored ExecutionResult dump, or None if the mission has not finished."""
+        row = self.conn.execute(
+            "SELECT result_json FROM missions WHERE mission_id = ?",
+            (mission_id,),
+        ).fetchone()
+        if row is None or not row["result_json"]:
+            return None
+        return json.loads(row["result_json"])
 
     def update_mission_status(self, mission_id: str, status: str) -> None:
         self.conn.execute(

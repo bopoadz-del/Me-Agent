@@ -249,17 +249,24 @@ def _create_api(runtime: dict[str, Any]) -> FastAPI:
 
     @app.get("/mission/{mission_id}", dependencies=[Depends(_auth)])
     async def get_mission(mission_id: str) -> dict[str, Any]:
-        row = runtime["store"].conn.execute(
+        store = runtime["store"]
+        row = store.conn.execute(
             "SELECT status, checkpoint FROM missions WHERE mission_id = ?",
             (mission_id,),
         ).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="not found")
-        return {
+        body: dict[str, Any] = {
             "mission_id": mission_id,
             "status": row["status"],
             "checkpoint": json.loads(row["checkpoint"] or "{}"),
         }
+        # Terminal ExecutionResult once the worker has finished: this is what carries
+        # citations and confidence (spec Section 11.4 step 7). Absent while running.
+        result = store.get_mission_result(mission_id)
+        if result is not None:
+            body["result"] = result
+        return body
 
     return app
 
