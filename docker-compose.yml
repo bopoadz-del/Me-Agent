@@ -8,6 +8,15 @@ services:
     environment:
       HIVE_JWT_KEY: ${HIVE_JWT_KEY}
       DATA_DIR: /data
+      # The image serves on $PORT (default 10000) but this file publishes and
+      # healthchecks 8001 -- without this the service is unreachable on both.
+      PORT: 8001
+      # hive_docker_entrypoint.sh runs render_enroll_hive.py before uvicorn and
+      # exits non-zero without these, so the container never starts. The values
+      # must match the agent's AGENT_ID / AGENT_SECRET: the script pre-enrols that
+      # pair into hive.db, and the agent authenticates with it.
+      BOOTSTRAP_AGENT_ID: ${AGENT_ID:-agent-1}
+      BOOTSTRAP_AGENT_SECRET: ${AGENT_SECRET}
     volumes:
       - hive-data:/data
     user: "agent"
