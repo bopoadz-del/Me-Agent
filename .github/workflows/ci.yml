@@ -49,6 +49,55 @@ jobs:
           make compile-domain
           python -m pytest tests/generated/ -v
 
+  phase-b-live-e2e:
+    name: Phase B live E2E (spec 11.4 step 7)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install httpx (checker dependency)
+        run: pip install httpx
+
+      - name: Generate stack credentials
+        run: |
+          {
+            echo "HIVE_JWT_KEY=$(openssl rand -hex 32)"
+            echo "AGENT_API_TOKEN=$(openssl rand -hex 32)"
+            echo "AGENT_SECRET=$(openssl rand -hex 32)"
+            echo "AGENT_ID=agent-e2e"
+          } >> "$GITHUB_ENV"
+
+      - name: Bring the stack up (hive + ollama + agent)
+        run: docker compose up -d --wait --wait-timeout 900
+
+      - name: Stage evidence inside the agent container
+        run: |
+          printf 'Container type: dry. Dwell hours: 24. Base rate: 10 USD/hr.\n' > tariff.txt
+          docker compose exec -T agent-instance mkdir -p /data/evidence
+          docker compose cp tariff.txt agent-instance:/data/evidence/tariff.txt
+
+      - name: Run spec 11.4 step 7
+        run: |
+          python scripts/live_e2e_check.py \
+            --base-url http://localhost:8000 \
+            --token "$AGENT_API_TOKEN" \
+            --evidence-path /data/evidence/tariff.txt \
+            --timeout 600
+
+      - name: Stack logs (on failure)
+        if: failure()
+        run: docker compose logs --tail 200
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
   phase-b-registered-skip:
     name: Phase B registered skip
     runs-on: ubuntu-latest

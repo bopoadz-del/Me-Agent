@@ -25,10 +25,14 @@ services:
     volumes:
       - ollama-data:/root/.ollama
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      # `ollama list` ships with the image; curl does not necessarily. A healthcheck
+      # that depends on an absent binary never reports healthy, and agent-instance
+      # waits on service_healthy -- so the whole stack would hang on a missing curl.
+      test: ["CMD", "ollama", "list"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 30
+      start_period: 60s
     # Pull llama3.2:3b on first start (idempotent if already present)
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -51,7 +55,12 @@ services:
       AGENT_API_TOKEN: ${AGENT_API_TOKEN}
       AGENT_SECRET: ${AGENT_SECRET}
       HIVE_URL: http://hive-server:8001
-      OLLAMA_URL: http://ollama:11434
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      # Must name a model the ollama service actually pulled, otherwise every
+      # generate call 404s. The agent's own default is qwen2.5:3b-instruct, which
+      # this stack never pulls.
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
       DATA_DIR: /data
     volumes:
       - agent-data:/data
