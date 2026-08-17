@@ -12,7 +12,11 @@ COPY common /app/common
 COPY agent /app/agent
 COPY VERSION /app/VERSION
 
-RUN useradd --create-home --uid 1000 agent \
+# entrypoint.sh is 100644 in git (Windows checkouts do not carry the exec bit), so
+# it must be made executable here or the container dies with "permission denied"
+# before any Python runs. hive/Dockerfile already does this; this image did not.
+RUN chmod +x /app/agent/entrypoint.sh \
+    && useradd --create-home --uid 1000 agent \
     && mkdir -p /data /data/preload /data/evidence /data/logs \
     && chown -R agent:agent /data /app
 
@@ -23,6 +27,5 @@ EXPOSE 8000
 
 USER agent
 
-COPY agent/entrypoint.sh /app/agent/entrypoint.sh
 ENTRYPOINT ["/app/agent/entrypoint.sh"]
 CMD ["python3", "-m", "agent.bootstrapper"]
