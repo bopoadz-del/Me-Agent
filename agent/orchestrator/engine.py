@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import time
 import uuid
 from collections import deque
@@ -250,18 +249,36 @@ def _wrap_registry(raw: Any) -> BlockRegistry:
     return reg
 
 
-def disk_over_limit(path: str = "/data") -> bool:
-    """True when the data volume is over max_disk_gb (or TEST_DISK_FULL flag).
+def _data_dir_bytes(path: str) -> int:
+    """Bytes consumed by the agent's own data directory."""
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                # Vanished mid-walk or unreadable: it cannot be counted, and a
+                # stat error must not wedge the mission API shut.
+                continue
+    return total
 
-    ``shutil.disk_usage(path).used`` is volume-wide. Under TEST_MODE the harness
-    drives refusal via TEST_DISK_FULL so host volumes with >10GB used do not
-    falsely saturate the mission API (A6: relaxation — pending human approval).
+
+def disk_over_limit(path: str = "/data") -> bool:
+    """True when the AGENT'S data directory exceeds max_disk_gb (or TEST_DISK_FULL).
+
+    Previously this compared ``shutil.disk_usage(path).used`` -- a volume-wide
+    figure -- against the limit. A Docker named volume reports the host filesystem,
+    so on any ordinary host that total is already past 10 GB and the mission API
+    answered 429 to everything. TEST_MODE returned False unconditionally, which hid
+    it from the suite: the real computation never ran in a test.
+
+    Measuring the agent's own footprint is what Section 10 means by max_disk_gb,
+    and it is correct regardless of how /data is mounted.
     """
     flag = os.environ.get("TEST_DISK_FULL", "").lower()
     if flag in ("1", "true", "yes"):
         return True
-    if os.environ.get("TEST_MODE", "").lower() == "true":
+    if not os.path.isdir(path):
         return False
-    usage = shutil.disk_usage(path)
     limit_bytes = OPERATIONAL_CONSTRAINTS["max_disk_gb"] * (1024**3)
-    return usage.used > limit_bytes
+    return _data_dir_bytes(path) > limit_bytes
